@@ -131,17 +131,20 @@ decode_and_execute :: proc(data: rawptr) {
         emulator.pc += 2
 
         /* DECODE + EXECUTE */
-        if instruction == 0x00E0 {
+        if instruction == 0x00e0 {
             // Clear the screen
         }
-        else if instruction == 0 {
-            thread.yield()
-            emulator.pc -= 2
+        else if instruction == 0x00ee {
+            emulator.pc = pop(&emulator.stack)
         }
         else {
             op_code := instruction >> 12
             switch op_code {
                 case 0x1:
+                    emulator.pc = get_imm_12(instruction)
+
+                case 0x2:
+                    append(&emulator.stack, emulator.pc)
                     emulator.pc = get_imm_12(instruction)
 
                 case 0x3:
@@ -165,12 +168,55 @@ decode_and_execute :: proc(data: rawptr) {
 
                 case 0x8:
                     switch get_imm_4(instruction) {
+                        case 0x0:
+                            y_value := emulator.registers[get_y(instruction)]
+                            emulator.registers[get_x(instruction)] = y_value
+
+                        case 0x1:
+                            y_value := emulator.registers[get_y(instruction)]
+                            emulator.registers[get_x(instruction)] |= y_value
+
+                        case 0x2:
+                            y_value := emulator.registers[get_y(instruction)]
+                            emulator.registers[get_x(instruction)] &= y_value
+
+                        case 0x3:
+                            y_value := emulator.registers[get_y(instruction)]
+                            emulator.registers[get_x(instruction)] ~= y_value
+                            
+                        case 0x4:
+                            y_value := emulator.registers[get_y(instruction)]
+                            old_x_value := emulator.registers[get_x(instruction)]
+                            emulator.registers[get_x(instruction)] += y_value
+                            if emulator.registers[get_x(instruction)] < old_x_value {
+                                emulator.registers[0xf] = 1
+                            }
+                            else {
+                                emulator.registers[0xf] = 0
+                            }
+
                         case 0x5:
                             y_value := emulator.registers[get_y(instruction)]
                             emulator.registers[get_x(instruction)] -= y_value
+
+                        case 0x6:
+                            x_value := emulator.registers[get_x(instruction)]
+                            emulator.registers[0xf] = x_value & 1
+                            emulator.registers[get_x(instruction)] >>= 1
+
+                        case 0xe:
+                            x_value := emulator.registers[get_x(instruction)]
+                            emulator.registers[0xf] = x_value >> 7
+                            emulator.registers[get_x(instruction)] <<= 1
+
                         case:
-                            fmt.panicf("Unknown sub-instruction for opcode 8 %v", get_imm_4(instruction))                            
+                            fmt.panicf("Unknown sub-instruction for opcode 8 %x", get_imm_4(instruction))                            
                     }
+
+                case 0x9:
+                    x_value := emulator.registers[get_x(instruction)]
+                    y_value := emulator.registers[get_y(instruction)]
+                    if x_value != y_value do emulator.pc += 2
 
                 case 0xa:
                     emulator.i_reg = get_imm_12(instruction)
@@ -214,6 +260,24 @@ decode_and_execute :: proc(data: rawptr) {
                             character := emulator.registers[get_x(instruction)] & 0xf
                             emulator.i_reg = FONT_START + 5 * cast(u16)character
 
+                        case 0x33:
+                            x_value := emulator.registers[get_x(instruction)]
+                            emulator.memory[emulator.i_reg + 2] = x_value % 10
+                            x_value /= 10
+                            emulator.memory[emulator.i_reg + 1] = x_value % 10
+                            x_value /= 10
+                            emulator.memory[emulator.i_reg] = x_value
+
+                        case 0x55:
+                            for reg, i in emulator.registers {
+                                emulator.memory[emulator.i_reg + cast(u16)i] = reg
+                            }
+
+                        case 0x65:
+                            for &reg, i in emulator.registers {
+                                reg = emulator.memory[emulator.i_reg + cast(u16)i]
+                            }
+
                         case:
                             fmt.panicf("Unknown subcommand for opcode f %x", get_imm_8(instruction))
                     }
@@ -221,7 +285,7 @@ decode_and_execute :: proc(data: rawptr) {
 
                 case:
                     dump_emulator(emulator)
-                    fmt.panicf("Unknown instruction %x", instruction)
+                    fmt.panicf("Unknown instruction %04x", instruction)
             }
         }
 
@@ -235,7 +299,7 @@ decode_and_execute :: proc(data: rawptr) {
 main :: proc() {
     emulator: Emulator
     init_emulator(&emulator)
-    file_name := "programs/BC_test.ch8"
+    file_name := "programs/test_opcode.ch8"
     did_load := load_program(&emulator, file_name)
     if !did_load {
         fmt.println("Could not load program", file_name)
