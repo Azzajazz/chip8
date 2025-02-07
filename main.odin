@@ -12,6 +12,8 @@ import rl "vendor:raylib"
 DISPLAY_WIDTH :: 64
 DISPLAY_HEIGHT :: 32
 
+FONT_START :: 0x50
+
 Emulator :: struct {
     memory: [4096]u8, // 4KB of RAM
     display: [DISPLAY_HEIGHT][DISPLAY_WIDTH]bool,
@@ -52,7 +54,7 @@ init_emulator :: proc(emulator: ^Emulator) {
         0xf0, 0x80, 0xf0, 0x80, 0x80  // F
     }
 
-    mem.copy_non_overlapping(&emulator.memory[0x50], &font_data[0], size_of(font_data))
+    mem.copy_non_overlapping(&emulator.memory[FONT_START], &font_data[0], size_of(font_data))
 }
 
 dump_emulator :: proc(emulator: ^Emulator) {
@@ -138,17 +140,37 @@ decode_and_execute :: proc(data: rawptr) {
         }
         else {
             op_code := instruction >> 12
-            switch (op_code) {
+            switch op_code {
                 case 0x1:
                     emulator.pc = get_imm_12(instruction)
 
+                case 0x3:
+                    x_value := emulator.registers[get_x(instruction)]
+                    if x_value == cast(u8)get_imm_8(instruction) do emulator.pc += 2
+
+                case 0x4:
+                    x_value := emulator.registers[get_x(instruction)]
+                    if x_value != cast(u8)get_imm_8(instruction) do emulator.pc += 2
+
+                case 0x5:
+                    x_value := emulator.registers[get_x(instruction)]
+                    y_value := emulator.registers[get_y(instruction)]
+                    if x_value == y_value do emulator.pc += 2
+
                 case 0x6:
-                    reg := get_x(instruction)
-                    emulator.registers[reg] = cast(u8)get_imm_8(instruction)
+                    emulator.registers[get_x(instruction)] = cast(u8)get_imm_8(instruction)
 
                 case 0x7:
-                    reg := get_x(instruction)
-                    emulator.registers[reg] += cast(u8)get_imm_8(instruction)
+                    emulator.registers[get_x(instruction)] += cast(u8)get_imm_8(instruction)
+
+                case 0x8:
+                    switch get_imm_4(instruction) {
+                        case 0x5:
+                            y_value := emulator.registers[get_y(instruction)]
+                            emulator.registers[get_x(instruction)] -= y_value
+                        case:
+                            fmt.panicf("Unknown sub-instruction for opcode 8 %v", get_imm_4(instruction))                            
+                    }
 
                 case 0xa:
                     emulator.i_reg = get_imm_12(instruction)
@@ -159,7 +181,6 @@ decode_and_execute :: proc(data: rawptr) {
                     x := emulator.registers[get_x(instruction)] % DISPLAY_WIDTH
                     y := emulator.registers[get_y(instruction)] % DISPLAY_HEIGHT
                     n := cast(u8)get_imm_4(instruction)
-                    fmt.printfln("x = %v, y = %v, n = %v", x, y, n)
                     emulator.registers[0xf] = 0
 
                     for dy: u8 = 0; dy < n; dy += 1 {
@@ -187,9 +208,20 @@ decode_and_execute :: proc(data: rawptr) {
                     sync.unlock(&emulator.display_mutex)
                 }
 
+                case 0xf: {
+                    switch get_imm_8(instruction) {
+                        case 0x29:
+                            character := emulator.registers[get_x(instruction)] & 0xf
+                            emulator.i_reg = FONT_START + 5 * cast(u16)character
+
+                        case:
+                            fmt.panicf("Unknown subcommand for opcode f %x", get_imm_8(instruction))
+                    }
+                }
+
                 case:
                     dump_emulator(emulator)
-                    fmt.panicf("Unknown opcode %x", op_code)
+                    fmt.panicf("Unknown instruction %x", instruction)
             }
         }
 
@@ -203,7 +235,7 @@ decode_and_execute :: proc(data: rawptr) {
 main :: proc() {
     emulator: Emulator
     init_emulator(&emulator)
-    file_name := "programs/IBM_Logo.ch8"
+    file_name := "programs/BC_test.ch8"
     did_load := load_program(&emulator, file_name)
     if !did_load {
         fmt.println("Could not load program", file_name)
