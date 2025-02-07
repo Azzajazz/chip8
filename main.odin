@@ -19,23 +19,7 @@ Emulator :: struct {
     delay_timer: u8,
     sound_timer: u8,
 
-    // @TODO: Should these be in an array?
-    v0: u8,
-    v1: u8,
-    v2: u8,
-    v3: u8,
-    v4: u8,
-    v5: u8,
-    v6: u8,
-    v7: u8,
-    v8: u8,
-    v9: u8,
-    v10: u8,
-    v11: u8,
-    v12: u8,
-    v13: u8,
-    v14: u8,
-    v15: u8,
+    registers: [16]u8,
 }
 
 hz_to_ns :: proc(hz: i64) -> i64 {
@@ -63,6 +47,28 @@ init_emulator :: proc(emulator: ^Emulator) {
     }
 
     mem.copy_non_overlapping(&emulator.memory[0x50], &font_data[0], size_of(font_data))
+
+    //@TODO: Load program into memory
+}
+
+get_imm_12 :: #force_inline proc(instr: u16) -> u16 {
+    return instr & 0xfff
+}
+
+get_imm_8 :: #force_inline proc(instr: u16) -> u8 {
+    return instr & 0xff
+}
+
+get_imm_4 :: #force_inline proc(instr: u16) -> u8 {
+    return instr & 0xf
+}
+
+get_x :: #force_inline proc(instr: u16) -> u8 {
+    return instr >> 8 & 0xf
+}
+
+get_y :: #force_inline proc(instr: u16) -> u8 {
+    return inst >> 4 & 0xf
 }
 
 decode_and_execute :: proc(data: rawptr) {
@@ -71,7 +77,44 @@ decode_and_execute :: proc(data: rawptr) {
 
     for {
         start_time := time.now()
-        // Put decode and execute code here
+
+        /* FETCH */
+        // The native encoding is little endian, but CHIP-8 architecture is big endian.
+        first_byte := emulator.memory[emulator.pc]
+        second_byte := emulator.memory[emulator.pc + 1]
+        instruction := cast(u16)second_byte << 8 | cast(u16)first_byte
+        emulator.pc += 2
+
+        /* DECODE + EXECUTE */
+        if instruction == 0x00E0 {
+            // Clear the screen here
+        }
+        else {
+            op_code := instruction >> 20
+            switch (op_code) {
+                case 0x1:
+                    emulator.pc := get_imm_12(instruction)
+
+                case 0x6:
+                    reg := get_x(instruction)
+                    emulator.registers[reg] = get_imm_8(instruction)
+
+                case 0x7:
+                    reg := get_x(instruction)
+                    emulator.registers[reg] += get_imm_8(instruction)
+
+                case 0xa:
+                    emulator.i = get_imm_12(instruction)
+
+                case 0xd:
+                    // Display execution here
+            }
+        }
+
+        switch
+
+        /* EXECUTE */
+
         end_time := time.now()
         diff_time := time.diff(start_time, end_time)
         start_time = end_time
