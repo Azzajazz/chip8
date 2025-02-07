@@ -12,8 +12,8 @@ Emulator :: struct {
     i: u16,
 
     stack: [dynamic]u16, //@TODO: Is this supposed to be fixed size?
-    delay_timer: u64, //@TODO: What is the maximum value here?
-    sound_timer: u64, //@TODO: What is the maximum value here?
+    delay_timer: u8,
+    sound_timer: u8,
 
     // @TODO: Should these be in an array?
     v0: u8,
