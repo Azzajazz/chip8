@@ -1,6 +1,10 @@
 package chip8
 
 import "core:mem"
+import "core:thread"
+import "core:fmt"
+import "core:time"
+
 import rl "vendor:raylib"
 
 Emulator :: struct {
@@ -34,8 +38,8 @@ Emulator :: struct {
     v15: u8,
 }
 
-hz_to_ms :: proc(hz: f32) -> f32 {
-    return 1000/hz
+hz_to_ns :: proc(hz: i64) -> i64 {
+    return 1e9/hz
 }
 
 init_emulator :: proc(emulator: ^Emulator) {
@@ -61,6 +65,20 @@ init_emulator :: proc(emulator: ^Emulator) {
     mem.copy_non_overlapping(&emulator.memory[0x50], &font_data[0], size_of(font_data))
 }
 
+decode_and_execute :: proc(data: rawptr) {
+    emulator := cast(^Emulator)data
+    ns_between_decodes := cast(time.Duration)hz_to_ns(700)
+
+    for {
+        start_time := time.now()
+        // Put decode and execute code here
+        end_time := time.now()
+        diff_time := time.diff(start_time, end_time)
+        start_time = end_time
+        time.accurate_sleep(ns_between_decodes - diff_time) // Sleep for one second
+    }
+}
+
 main :: proc() {
     emulator: Emulator
     init_emulator(&emulator)
@@ -68,15 +86,12 @@ main :: proc() {
     rl.SetTargetFPS(60)
     rl.InitWindow(800, 600, "Chip8")
 
-    decode_loop_ms := hz_to_ms(700)
-    decode_loop_counter: f32 = 0
+    decode_thread := thread.create_and_start_with_data(&emulator, decode_and_execute)
     for !rl.WindowShouldClose() {
-        decode_loop_counter += rl.GetFrameTime() * 1000
-        if decode_loop_counter > decode_loop_ms {
-            decode_loop_counter -= decode_loop_ms
-        }
         rl.BeginDrawing()
         rl.EndDrawing()
     }
+
+    thread.terminate(decode_thread, 0)
     rl.CloseWindow()
 }
